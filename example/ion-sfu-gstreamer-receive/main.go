@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -13,12 +12,12 @@ import (
 	gst "github.com/pion/ion-sdk-go/pkg/gst"
 	"github.com/pion/webrtc/v3"
 )
-
-func init() {
-	// This example uses Gstreamer's autovideosink element to display the received video
-	// This element, along with some others, sometimes require that the process' main thread is used
-	runtime.LockOSThread()
-}
+//
+//func init() {
+//	// This example uses Gstreamer's autovideosink element to display the received video
+//	// This element, along with some others, sometimes require that the process' main thread is used
+//	runtime.LockOSThread()
+//}
 
 func runClientLoop(addr, session string) {
 
@@ -49,29 +48,26 @@ func runClientLoop(addr, session string) {
 		return
 	}
 
-	filename := strings.ReplaceAll(session, " ", "-") + "-" + strconv.FormatInt(time.Now().Unix(), 10) + ".avi"
+	filename := strings.ReplaceAll(session, " ", "-") + "-" + strconv.FormatInt(time.Now().Unix(), 10) + ".mkv"
 	destination := "filesink location=./" + filename
-	videoEncoder := "x264enc bframes=0 speed-preset=ultrafast key-int-max=60 ! video/x-h264, profile=baseline "
-	//destination="movie.avi"
 
 	compositorString := fmt.Sprintf(`
-		qtmux name=savemux ! queue ! %s sync=false async=false
-			vtee. ! queue ! savemux.
-			atee. ! queue ! savemux.
-
+		audiotestsrc wave=silence freq=200 ! amix.
+		matroskamux name=savemux ! queue ! %s sync=false async=false
+		vtee. ! videoconvert ! videorate ! vp8enc end-usage=cq auto-alt-ref=1 lag-in-frames=16 target-bitrate=800000000 static-threshold=0 max-quantizer=50 min-quantizer=0 ! savemux.
+		atee. ! opusenc ! savemux.
 	`, destination)
-
-	log.Infof("Beginning Recording Compositor[%s]: %s -> %s", addr, videoEncoder, filename)
 
 	pipelineID := addr + "|" + filename
 	log.Infof("connected pipeline[%s]!", pipelineID)
 	compositor := gst.NewCompositorPipeline(compositorString)
 
+
 	c.OnTrack = func(t *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
 		log.Debugf("pipeline[%s] got track: %#v", pipelineID, t)
 		if t.Kind() == webrtc.RTPCodecTypeVideo && t.Codec().MimeType != webrtc.MimeTypeH264 {
 			log.Errorf("only h264 video is supported currently, please help me improve this example :) ")
-			panic("exiting")
+			//panic("exiting")
 		}
 
 		compositor.AddInputTrack(t, c.GetSubTransport().GetPeerConnection())
@@ -102,8 +98,8 @@ func main() {
 
 	// parse flag
 	var session, addr string
-	flag.StringVar(&addr, "addr", "localhost:50051", "ion-cluster grpc addr")
-	flag.StringVar(&session, "session", "test room", "join session name")
+	flag.StringVar(&addr, "addr", "localhost:50055", "ion-cluster grpc addr")
+	flag.StringVar(&session, "session", "session", "join session name")
 	flag.Parse()
 
 	go runClientLoop(addr, session)

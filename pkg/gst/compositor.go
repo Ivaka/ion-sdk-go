@@ -36,9 +36,7 @@ type CompositorPipeline struct {
 func NewCompositorPipeline(extraPipelineStr string) *CompositorPipeline {
 	pipelineStr := `
 		compositor name=vmix background=black ! video/x-raw,width=1920,height=1080,framerate=30/1,format=UYVY ! queue ! tee name=vtee 
-			vtee. ! queue ! glimagesink sync=false 
 		audiomixer name=amix ! queue ! tee name=atee 
-			atee. ! queue ! audioconvert ! autoaudiosink
 	` + extraPipelineStr
 
 	log.Infof("Creating gst compositor pipeline:\n%s", pipelineStr)
@@ -66,12 +64,14 @@ func (c *CompositorPipeline) AddInputTrack(t *webrtc.TrackRemote, pc *webrtc.Pee
 
 	switch strings.ToLower(t.Codec().MimeType) {
 	case "audio/opus":
-		inputBin += ", encoding-name=OPUS, payload=96 ! rtpopusdepay ! queue ! opusdec "
+		inputBin += fmt.Sprintf(", encoding-name=OPUS, payload=%d ! rtpopusdepay ! queue ! opusdec ", t.PayloadType())
 	case "audio/g722":
 		inputBin += " clock-rate=8000 ! rtpg722depay ! decodebin "
 	case "video/vp8":
-		inputBin += ", encoding-name=VP8-DRAFT-IETF-01 ! rtpvp8depay ! avdec_vp8 "
-	case "viode/vp9":
+		inputBin = fmt.Sprintf("appsrc format=time is-live=true do-timestamp=true name=%s", t.ID())
+		inputBin += fmt.Sprintf(" caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)VP8, payload=(int)%d\"", t.PayloadType())
+		inputBin += fmt.Sprintf(" ! rtpjitterbuffer ! rtpvp8depay ! queue ! vp8dec ! videoconvert ! queue ") // ! vp8dec ! videoconvert ! queue ")
+	case "video/vp9":
 		inputBin += " ! rtpvp9depay ! decodebin "
 	case "video/h264":
 		inputBin += fmt.Sprintf(", payload=%d ! rtph264depay ! queue ! %s !  videoconvert ! queue ", t.PayloadType(), getDecoderString())
@@ -98,6 +98,12 @@ func (c *CompositorPipeline) AddInputTrack(t *webrtc.TrackRemote, pc *webrtc.Pee
 				fmt.Println(rtcpSendErr)
 			}
 		}
+		//go func () {
+		//	for _ = range time.Tick(5 * time.Second) {
+		//		log.Infof("go forceKeyUnit: %v", t.ID())
+		//		boundRemoteTrackKeyframeCallbacks[t.ID()]()
+		//	}
+		//}()
 	}
 	go c.bindTrackToAppsrc(t)
 }
@@ -154,7 +160,7 @@ func (c *CompositorPipeline) pushAppsrc(buffer []byte, appsrc string) {
 //export goHandleAppsrcForceKeyUnit
 func goHandleAppsrcForceKeyUnit(remoteTrackID *C.char) {
 	id := C.GoString(remoteTrackID)
-	log.Debugf("go forceKeyUnit: %v", id)
+	log.Infof("go forceKeyUnit: %v", id)
 	if trackSendPLI, ok := boundRemoteTrackKeyframeCallbacks[id]; ok {
 		trackSendPLI()
 	}

@@ -31,6 +31,20 @@ static gboolean gstreamer_bus_call(GstBus *bus, GstMessage *msg, gpointer data) 
     // }
     break;
 
+    case GST_MESSAGE_STATE_CHANGED: {
+        GstState old_state, new_state, pending_state;
+        gst_message_parse_state_changed (msg, &old_state, &new_state, &pending_state);
+        g_print ("Pipeline state changed from %s to %s:\n",
+                    gst_element_state_get_name (old_state), gst_element_state_get_name (new_state));
+        break;
+    }
+
+    case GST_MESSAGE_CLOCK_LOST: {
+        g_print("Clock LOST!");
+        break;
+    }
+
+
   case GST_MESSAGE_ERROR: {
     gchar *debug;
     GError *error;
@@ -116,6 +130,15 @@ void gstreamer_send_bind_appsink_track(GstElement *pipeline, char *appSinkName, 
 
 void gstreamer_receive_push_buffer(GstElement *pipeline, void *buffer, int len, char* element_name) {
   GstElement *src = gst_bin_get_by_name(GST_BIN(pipeline), element_name);
+
+    GstState cur_state;
+    gst_element_get_state (GST_ELEMENT (src), &cur_state, NULL, 0);
+
+    if (cur_state != GST_STATE_PLAYING) {
+        gst_message_new_request_state(GST_ELEMENT (src), GST_STATE_PLAYING);
+        g_print("Element state is not PLAYING!");
+        return;
+    }
 
   if (src != NULL) {
     gpointer p = g_memdup(buffer, len);
